@@ -12,46 +12,42 @@ namespace NetChange
     class Program
     {
         static string ownPort;
+        static int ownPortInt;
         static int nrOfNbs;
         static Thread[] threads;
-        static int[] neighbours;
+        static List<int> nbPorts;
         static int[] connection;
         static int[] distances;
 
         static void Main(string[] args)
         {
             connection = new int[19];
-            neighbours = new int[19];
+            nbPorts = new List<int>();
             distances = new int[20];
-            
-            ownPort = args[0];
-            Console.Title = "NetChange" + ownPort;
-            nrOfNbs = args.Length - 2;
 
+            ownPort = args[0];
+            ownPortInt = int.Parse(ownPort);
+            Console.Title = "NetChange " + ownPort;
+            nrOfNbs = args.Length - 2;
+            threads = new Thread[21];
+            threads[0] = new Thread(consoleHandler);
+            threads[0].Start();
+            threads[1] = new Thread(connectionHandler);
+            threads[1].Start();
             for (int i = 1; i < args.Length; i++)
             {
                 int port = int.Parse(args[i]);
-                neighbours[port - 555000] = i;
-                distances[port - 555000] = int.MaxValue; 
+                nbPorts.Add(i);
+                distances[port - 55500] = int.MaxValue;
                 connection[i] = port;
-            }
-            distances[int.Parse(ownPort) - 555000] = 0;
- 
 
-            threads = new Thread[21];
-            threads[0] = new Thread(consoleHandler);
-            threads[1] = new Thread(connectionHandler);
-            for (int i = 2; i < args.Length; i++)
-            {
-                threads[i] = new Thread(communicationHandler);
+                threads[port - 55500] = new Thread(communicationHandler);
+                threads[port - 55500].Start(port);
+                threads[port - 55500].Join();
             }
+            distances[ownPortInt - 55500] = 0;
 
-            /*for (int x = 1; x < nrOfNbs + 2; x++)
-            {
-                Console.WriteLine("threads[" + x + "] geeft weer poort " + connection[x]);
-                Console.WriteLine("De afstand tot " + connection[x] + " = " + distances[x]);
-            }
-            */
+
             Console.ReadKey();
         }
 
@@ -76,11 +72,13 @@ namespace NetChange
 
                 else if (prog == "C")
                 {
-                    nrOfNbs++;
                     int poortnr = int.Parse(words[1]);
-                    threads[2 + nrOfNbs] = new Thread(communicationHandler);
-                    neighbours[poortnr - 555000] = nrOfNbs + 2;
-                    //threads[2+nrofNbs].Start(..)
+                    threads[poortnr] = new Thread(communicationHandler);
+
+                    threads[poortnr].Start(poortnr);
+
+                    nbPorts.Add(poortnr);
+
                     sendMsg(poortnr, "Connected" + ownPort);
                 }
 
@@ -88,13 +86,7 @@ namespace NetChange
                 {
                     int poortnr = int.Parse(words[1]);
                     sendMsg(poortnr, "Disconnect" + ownPort);
-                    int own, last;
-                    own = neighbours[poortnr - 555000];
-                    last = neighbours[nrOfNbs + 555000];
-
-                    threads[own] = threads[last];
-                    threads[last] = null;
-                    nrOfNbs--;
+                    threads[poortnr - 55500 + 2].Abort();
                 }
             }
 
@@ -110,8 +102,19 @@ namespace NetChange
             throw new NotImplementedException();
         }
 
-        private static void communicationHandler()
+        private static void communicationHandler(object t)
         {
+            int port = (int)t;
+            if (port > ownPortInt)
+            {
+                Client client = new Client(port);
+                
+            }
+            else
+            {
+                Server server = new Server(port);
+                
+            }
 
         }
 
@@ -128,17 +131,34 @@ namespace NetChange
 
     }
 
+
+
     class Client
     {
-        Client(object t)
+        public Client(int portnr)
         {
+            bool connected = false;
+            TcpClient client;
+            TcpClient client1;
             try
             {
-                TcpClient client = new TcpClient("localhost", 1234);
+                while (!connected)
+                {
+                    try
+                    {
+                       
+                        client1 = new TcpClient("localhost", portnr);
+                        connected = true;
+                    }
+                    catch { Thread.Sleep(10); }
+                }
+                client = new TcpClient("localhost", portnr);            
+
                 StreamReader clientIn = new StreamReader(client.GetStream());
                 StreamWriter clientOut = new StreamWriter(client.GetStream());
 
                 clientOut.AutoFlush = true;
+                Console.WriteLine("Succesfully created Client");
 
                 while (true)
                 {
@@ -153,9 +173,9 @@ namespace NetChange
 
     class Server
     {
-        Server(object t)
+        public Server(int portnr)
         {
-            TcpListener server = new TcpListener(IPAddress.Any, 1234);
+            TcpListener server = new TcpListener(IPAddress.Any, portnr);
             try
             {
                 server.Start();
@@ -163,6 +183,7 @@ namespace NetChange
                 StreamReader clientIn = new StreamReader(client.GetStream());
                 StreamWriter clientOut = new StreamWriter(client.GetStream());
                 clientOut.AutoFlush = true;
+                Console.WriteLine("Succesfully created Server");
                 while (true)
                 {
                     string msg = clientIn.ReadLine();
