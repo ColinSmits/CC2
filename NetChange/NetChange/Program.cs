@@ -15,22 +15,29 @@ namespace NetChange
         static int nrOfNbs;
         static Thread[] threads;
         static int[] neighbours;
-
+        static int[] connection;
+        static int[] distances;
 
         static void Main(string[] args)
         {
+            connection = new int[19];
             neighbours = new int[19];
+            distances = new int[20];
+            
             ownPort = args[0];
             Console.Title = "NetChange" + ownPort;
-            
             nrOfNbs = args.Length - 2;
 
-            for (int i = 2; i < args.Length; i++)
+            for (int i = 1; i < args.Length; i++)
             {
                 int port = int.Parse(args[i]);
                 neighbours[port - 555000] = i;
-            }           
+                distances[port - 555000] = int.MaxValue; 
+                connection[i] = port;
+            }
+            distances[int.Parse(ownPort) - 555000] = 0;
  
+
             threads = new Thread[21];
             threads[0] = new Thread(consoleHandler);
             threads[1] = new Thread(connectionHandler);
@@ -38,6 +45,14 @@ namespace NetChange
             {
                 threads[i] = new Thread(communicationHandler);
             }
+
+            /*for (int x = 1; x < nrOfNbs + 2; x++)
+            {
+                Console.WriteLine("threads[" + x + "] geeft weer poort " + connection[x]);
+                Console.WriteLine("De afstand tot " + connection[x] + " = " + distances[x]);
+            }
+            */
+            Console.ReadKey();
         }
 
         private static void consoleHandler()
