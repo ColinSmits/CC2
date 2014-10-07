@@ -11,6 +11,9 @@ namespace NetChange
 {
     class Program
     {
+        static TcpClient[] client;
+        static StreamReader[] streamsIn;
+        static StreamWriter[] streamsOut;
         static string ownPort;
         static int ownPortInt;
         static int nrOfNbs;
@@ -21,6 +24,9 @@ namespace NetChange
 
         static void Main(string[] args)
         {
+            streamsIn = new StreamReader[19];
+            streamsOut = new StreamWriter[19];
+            client = new TcpClient[19];
             connection = new int[19];
             nbPorts = new List<int>();
             distances = new int[20];
@@ -36,14 +42,27 @@ namespace NetChange
             threads[1].Start();
             for (int i = 1; i < args.Length; i++)
             {
+                
                 int port = int.Parse(args[i]);
+                int calcPort = port - 55500;
                 nbPorts.Add(i);
-                distances[port - 55500] = int.MaxValue;
+                distances[calcPort] = int.MaxValue;
                 connection[i] = port;
-
-                threads[port - 55500] = new Thread(communicationHandler);
-                threads[port - 55500].Start(port);
-                threads[port - 55500].Join();
+                if (port > ownPortInt)
+                {
+                    threads[calcPort + 2] = new Thread(createClient);
+                    threads[calcPort + 2].Start(port);
+                    Console.WriteLine("Succesfully created Client for port " + port + " on thread " + (calcPort + 2));
+                }
+                else
+                {
+                    threads[calcPort + 2] = new Thread(createServer);
+                    threads[calcPort + 2].Start(ownPortInt);
+                    Console.WriteLine("Succesfully created Server for port " + port + " on thread " + (calcPort + 2));
+                }
+                
+               
+                threads[calcPort + 2].Join();
             }
             distances[ownPortInt - 55500] = 0;
 
@@ -60,22 +79,31 @@ namespace NetChange
                 string prog = words[0];
                 if (prog == "R")
                 {
-                    showRoutingTable();
+                    Console.WriteLine("Hier komt dan de routing table");
                 }
 
                 else if (prog == "B")
                 {
                     int poortnr = int.Parse(words[1]);
                     string msg = words[2];
-                    sendMsg(poortnr, msg);
+                    //sendMsg(poortnr, msg);
                 }
 
                 else if (prog == "C")
                 {
                     int poortnr = int.Parse(words[1]);
-                    threads[poortnr] = new Thread(communicationHandler);
+                    if (poortnr > ownPortInt)
+                    {
+                        threads[poortnr] = new Thread(createClient);
+                        threads[poortnr].Start(poortnr);
+                    }
+                    else
+                    {
+                        threads[poortnr] = new Thread(createServer);
+                        threads[poortnr].Start(poortnr);
+                    }
 
-                    threads[poortnr].Start(poortnr);
+                   
 
                     nbPorts.Add(poortnr);
 
@@ -94,7 +122,10 @@ namespace NetChange
 
         private static void sendMsg(int poortnr, string msg)
         {
-            throw new NotImplementedException();
+            streamsOut[poortnr - 55500].WriteLine(msg);
+            Console.WriteLine("Message Sent");
+            
+
         }
 
         private static void showRoutingTable()
@@ -102,21 +133,7 @@ namespace NetChange
             throw new NotImplementedException();
         }
 
-        private static void communicationHandler(object t)
-        {
-            int port = (int)t;
-            if (port > ownPortInt)
-            {
-                Client client = new Client(port);
-                
-            }
-            else
-            {
-                Server server = new Server(port);
-                
-            }
-
-        }
+        
 
 
 
@@ -129,70 +146,85 @@ namespace NetChange
 
 
 
-    }
+    
 
 
 
-    class Client
-    {
-        public Client(int portnr)
+   
+        private static void createClient(object t)
         {
+            int portnr = (int)t;
             bool connected = false;
-            TcpClient client;
-            TcpClient client1;
+            Console.WriteLine("stage 1");
+            
             try
             {
                 while (!connected)
                 {
+                    Console.WriteLine("still Trying");
                     try
                     {
-                       
-                        client1 = new TcpClient("localhost", portnr);
+                        client[portnr - 55500] = new TcpClient("localhost", portnr);  
                         connected = true;
+                        Console.WriteLine("connected = true");
                     }
                     catch { Thread.Sleep(10); }
                 }
-                client = new TcpClient("localhost", portnr);            
+                Console.WriteLine("connected");
+                          
+                
+                streamsIn[portnr - 55500] = new StreamReader(client[portnr - 55500].GetStream());
+                streamsOut[portnr - 55500] = new StreamWriter(client[portnr - 55500].GetStream());
 
-                StreamReader clientIn = new StreamReader(client.GetStream());
-                StreamWriter clientOut = new StreamWriter(client.GetStream());
-
-                clientOut.AutoFlush = true;
-                Console.WriteLine("Succesfully created Client");
-
+                streamsOut[portnr - 55500].AutoFlush = true;
                 while (true)
                 {
-                    clientOut.WriteLine(Console.ReadLine());
-                    Console.WriteLine(clientIn.ReadLine());
+                    streamsOut[portnr - 55500].WriteLine(Console.ReadLine());
+                    Console.WriteLine(streamsIn[portnr - 55500].ReadLine());
                 }
             }
             catch
             { }
         }
-    }
+    
 
-    class Server
-    {
-        public Server(int portnr)
+  
+        private static void createServer(object t)
         {
+            Console.WriteLine("Starting created Server");
+            int portnr = (int) t ; 
             TcpListener server = new TcpListener(IPAddress.Any, portnr);
             try
             {
+                Console.WriteLine("Still Trying");
                 server.Start();
-                TcpClient client = server.AcceptTcpClient();
-                StreamReader clientIn = new StreamReader(client.GetStream());
-                StreamWriter clientOut = new StreamWriter(client.GetStream());
-                clientOut.AutoFlush = true;
+                Console.WriteLine("Waiting for connection");
+                
+                Console.WriteLine("connection established");
+                TcpClient newclient = server.AcceptTcpClient();
+                Console.WriteLine(((IPEndPoint)newclient.Client.RemoteEndPoint).Address);
+                Console.WriteLine(((IPEndPoint)newclient.Client.RemoteEndPoint).Port);
+                int remoteport = ((IPEndPoint)newclient.Client.RemoteEndPoint).Port;
+                client[remoteport - 55500] = newclient;
+                streamsIn[remoteport - 55500] = new StreamReader(client[remoteport - 55500].GetStream());
+                streamsOut[remoteport - 55500] = new StreamWriter(client[remoteport - 55500].GetStream());
+
+                streamsOut[portnr - 55500].AutoFlush = true;
                 Console.WriteLine("Succesfully created Server");
                 while (true)
                 {
-                    string msg = clientIn.ReadLine();
+                    string msg = streamsIn[portnr-55500].ReadLine();
+                    Console.WriteLine("Message Received");
                     Console.WriteLine(msg);
-                    clientOut.WriteLine(msg);
+                    streamsOut[portnr - 55500].WriteLine(msg);
                 }
             }
-            catch
-            { }
+            catch(Exception e)
+            {
+                Console.WriteLine("Server could not start");
+                Console.WriteLine(e);
+                
+            }
         }
     }
 
