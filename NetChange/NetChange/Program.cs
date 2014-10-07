@@ -11,38 +11,103 @@ namespace NetChange
 {
     class Program
     {
+        static string ownPort;
+        static int nrOfNbs;
+        static Thread[] threads;
+        static int[] neighbours;
+
 
         static void Main(string[] args)
         {
-            Console.Title = "NetChange" + args[0];
-            Thread[] threads;
-                      
+            neighbours = new int[19];
+            ownPort = args[0];
+            Console.Title = "NetChange" + ownPort;
+            
+            nrOfNbs = args.Length - 2;
 
-            threads = new Thread[3];
+            for (int i = 2; i < args.Length; i++)
+            {
+                int port = int.Parse(args[i]);
+                neighbours[port - 555000] = i;
+            }           
+ 
+            threads = new Thread[21];
             threads[0] = new Thread(consoleHandler);
             threads[1] = new Thread(connectionHandler);
-            //threads[2..] = new Thread(communicationHandler)
-
+            for (int i = 2; i < args.Length; i++)
+            {
+                threads[i] = new Thread(communicationHandler);
+            }
         }
 
         private static void consoleHandler()
         {
+            string line;
+            while ((line = Console.ReadLine()) != null)
+            {
+                string[] words = line.Split(' ');
+                string prog = words[0];
+                if (prog == "R")
+                {
+                    showRoutingTable();
+                }
 
+                else if (prog == "B")
+                {
+                    int poortnr = int.Parse(words[1]);
+                    string msg = words[2];
+                    sendMsg(poortnr, msg);
+                }
+
+                else if (prog == "C")
+                {
+                    nrOfNbs++;
+                    int poortnr = int.Parse(words[1]);
+                    threads[2 + nrOfNbs] = new Thread(communicationHandler);
+                    neighbours[poortnr - 555000] = nrOfNbs + 2;
+                    //threads[2+nrofNbs].Start(..)
+                    sendMsg(poortnr, "Connected" + ownPort);
+                }
+
+                else if (prog == "D")
+                {
+                    int poortnr = int.Parse(words[1]);
+                    sendMsg(poortnr, "Disconnect" + ownPort);
+                    int own, last;
+                    own = neighbours[poortnr - 555000];
+                    last = neighbours[nrOfNbs + 555000];
+
+                    threads[own] = threads[last];
+                    threads[last] = null;
+                    nrOfNbs--;
+                }
+            }
+
+        }
+
+        private static void sendMsg(int poortnr, string msg)
+        {
+            throw new NotImplementedException();
+        }
+
+        private static void showRoutingTable()
+        {
+            throw new NotImplementedException();
         }
 
         private static void communicationHandler()
         {
-            
+
         }
 
-        
+
 
         private static void connectionHandler()
         {
 
 
         }
-        
+
 
 
 
