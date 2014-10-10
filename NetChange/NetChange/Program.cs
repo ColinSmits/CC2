@@ -24,6 +24,8 @@ namespace NetChange
         static int[] distances;
         static int[] preferred;
 
+        static object ndisLock = new Object() , distprefLock = new Object();
+
         //Async server
         public static ManualResetEvent allDone = new ManualResetEvent(false),
                                        connectDone = new ManualResetEvent(false); 
@@ -62,10 +64,10 @@ namespace NetChange
             //assigning maxvalue to all distances/ndis
             for (int x = 0; x < distances.Length; x++)
             {
-                distances[x] = int.MaxValue;
+                distances[x] = 21;
                 for (int y = 0; y < ndis.GetLength(1); y++)
                 {
-                    ndis[x, y] = int.MaxValue;
+                    ndis[x, y] = 21;
                 }
             }
 
@@ -77,7 +79,6 @@ namespace NetChange
 
                 int port = int.Parse(args[i]);
                 int calcPort = port - 55500;
-                nbPorts.Add(i);
                 distances[calcPort] = 1; //Neighbour
                
                 if (port < ownPortInt)
@@ -103,7 +104,7 @@ namespace NetChange
                 string prog = words[0];
                 if (prog == "R")
                 {
-                    Console.WriteLine("Hier komt dan de routing table");
+                    showRoutingTable();
                 }
 
                 else if (prog == "B")
@@ -145,13 +146,16 @@ namespace NetChange
         private static void sendMsg(int poortnr, string msg)
         {
 
-            streamsOut[poortnr - 55500].WriteLine("Hello There");
+            streamsOut[poortnr - 55500].WriteLine(msg);
             Console.WriteLine("Message Sent");
         }
 
         private static void showRoutingTable()
         {
-           // throw new NotImplementedException();
+            for (int x = 0; x < 5; x++)
+            {
+                Console.WriteLine((55500 + x) + " " + distances[x]);
+            }
         }
 
         private static void communicationHandler(object obj)
@@ -161,7 +165,31 @@ namespace NetChange
             while (true)
             {
                 string msg = streamIn.ReadLine();
-                Console.WriteLine(msg);
+                string[] parts = msg.Split(' ');
+                if (parts[0] == "MYDIST:")
+                {
+                    Console.WriteLine(parts[1] + " " + parts[2] + " " + parts[3]);
+                    
+                    Console.WriteLine("//MYDIST ontvangen");
+                    calcDist(parts, portnr);
+                }
+            }
+        }
+
+        private static void calcDist(string[] parts, int portnr)
+        {
+            int changedP = int.Parse(parts[1]) - 55500;
+            int newDis = int.Parse(parts[2]) + 1;
+            
+            if (newDis < distances[changedP])
+            {
+                sendMyDist(changedP + 55500, newDis);
+                lock (ndisLock)
+                {
+                    
+                    ndis[portnr, changedP] = newDis - 1;
+                    distances[changedP] = newDis;
+                }
             }
         }
 
@@ -169,7 +197,8 @@ namespace NetChange
         {
             foreach (int port in nbPorts)
             {
-                sendMsg(port, "MYDIST: " + poortnr + " " + newdistance);
+                Console.WriteLine(port);
+                sendMsg(port, "MYDIST: " + poortnr + " " + newdistance + " " + ownPort);
             }
         }
         
@@ -227,9 +256,10 @@ namespace NetChange
                     streamsIn[portnr] = streamIn;
                     Console.WriteLine("Stream saved");
                     threads[portnr] = new Thread(communicationHandler);
-                    threads[portnr].Start(portnr + 55500);
+                    threads[portnr].Start(portnr);
                     distances[portnr] = 1;
                     nbPorts.Add(portnr + 55500);
+                    sendMyDist(portnr + 55500, 1);
                     obtained = true;
                 }
 
@@ -296,9 +326,10 @@ namespace NetChange
                         streamsIn[portnr] = streamIn;
                         Console.WriteLine("//Stream saved");
                         threads[portnr] = new Thread(communicationHandler);
-                        threads[portnr].Start(portnr + 55500);
+                        threads[portnr].Start(portnr);
                         distances[portnr] = 1;
                         nbPorts.Add(portnr + 55500);
+                        sendMyDist(portnr + 55500, 1);
                         obtained = true;
                     }
                 }
