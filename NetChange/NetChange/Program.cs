@@ -24,14 +24,9 @@ namespace NetChange
         static int[] distances;
 
         //Async server
-        public static ManualResetEvent allDone = new ManualResetEvent(false), 
-                                       connectDone = new ManualResetEvent(false), 
+        public static ManualResetEvent allDone = new ManualResetEvent(false),
+                                       connectDone = new ManualResetEvent(false); 
                                        
-                                       sendDone = new ManualResetEvent(false),
-                                       receiveDone = new ManualResetEvent(false);
-
-
-
 
         static void Main(string[] args)
         {
@@ -130,15 +125,15 @@ namespace NetChange
                     }
                     else
                     {
-                       // threads[poortnr] = new Thread(acceptClient);
-                      //  threads[poortnr].Start();
+                        threads[poortnr - 55500] = new Thread(asyncGetConn);
+                        threads[poortnr - 55500].Start(poortnr);
                     }
 
 
 
                     nbPorts.Add(poortnr);
 
-                    //sendMsg(poortnr, "Connected" + ownPort);
+                    
                 }
 
                 else if (prog == "D")
@@ -149,6 +144,61 @@ namespace NetChange
                 }
             }
 
+        }
+
+        private static void asyncGetConn(object obj)
+        {
+            int portnr = (int)obj;
+
+            try
+            {
+                //create client on the server identified by portnr
+
+                TcpClient client = new TcpClient();
+
+                client.BeginConnect("localhost", portnr, new AsyncCallback(asyncGetConnCB), client);
+                connectDone.WaitOne();
+                Console.WriteLine("Verbonden: " + portnr);
+            }
+            catch { }
+
+
+        }
+
+        private static void asyncGetConnCB(IAsyncResult ar)
+        {
+            try
+            {
+                TcpClient client = (TcpClient)ar.AsyncState;
+                client.EndConnect(ar);
+                Console.WriteLine("//Connect complete");
+
+                connectDone.Set();
+                StreamReader streamIn = new StreamReader(client.GetStream());
+                StreamWriter streamOut = new StreamWriter(client.GetStream());
+
+                streamOut.AutoFlush = true;
+                streamOut.WriteLine("//PleasePortnr: " + ownPortInt);
+                Console.WriteLine("//asked to connect");
+                bool verified = false;
+                while (!verified)
+                {
+                    string line = streamIn.ReadLine();
+                    string[] parts = line.Split(' ');
+                    if (parts[0] == "//Close")
+                    {
+                        client.Close();
+                        verified = true;
+                    }
+
+                }
+                
+
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
         }
         //Working sending messages over the socket using the stream according to the portnr
         private static void sendMsg(int poortnr, string msg)
@@ -198,14 +248,14 @@ namespace NetChange
             allDone.Set();
             TcpListener listener = (TcpListener)ar.AsyncState;
             TcpClient accClient = listener.EndAcceptTcpClient(ar);
-            Console.WriteLine("Client accepted");
+            Console.WriteLine("//Client accepted");
 
             StreamReader streamIn = new StreamReader(accClient.GetStream());
             StreamWriter streamOut = new StreamWriter(accClient.GetStream());
 
             streamOut.AutoFlush = true;
             streamOut.WriteLine("//Portnr: " + ownPort);
-            Console.WriteLine("written to stream");
+            Console.WriteLine("//written to stream");
             bool obtained = false;
             while (!obtained)
             {
@@ -214,11 +264,22 @@ namespace NetChange
                 if (parts[0] == "//Portnr:")
                 {
                     int portnr = int.Parse(parts[1]) - 55500;
+                    Console.WriteLine("Verbonden: " + portnr);
                     streamsOut[portnr] = streamOut;
                     streamsIn[portnr] = streamIn;
                     Console.WriteLine("Stream saved");
                     threads[portnr] = new Thread(communicationHandler);
                     threads[portnr].Start(portnr);
+                    obtained = true;
+                }
+
+                if (parts[0] == "//PleasePortnr:")
+                {
+                    int portnr = int.Parse(parts[1]) - 55500;
+                    threads[portnr] = new Thread(asyncCreate);
+                    threads[portnr].Start(portnr + 55500);
+                    streamOut.WriteLine("//Close");
+                    accClient.Close();
                     obtained = true;
                 }
             }
@@ -245,13 +306,12 @@ namespace NetChange
             try
             {
                 //create client on the server identified by portnr
-               
-               
+                              
                 TcpClient client = new TcpClient();
 
                 client.BeginConnect("localhost", portnr, new AsyncCallback(asyncCreateCB), client);
                 connectDone.WaitOne();
-                Console.WriteLine("connected = true");
+                Console.WriteLine("Verbonden: " + portnr);
                 
 
             }
@@ -266,14 +326,15 @@ namespace NetChange
             {
                 TcpClient client = (TcpClient)ar.AsyncState;
                 client.EndConnect(ar);
-                Console.WriteLine("Connect complete");
+                Console.WriteLine("//Connect complete");
+              
                 connectDone.Set();
                 StreamReader streamIn = new StreamReader(client.GetStream());
                 StreamWriter streamOut = new StreamWriter(client.GetStream());
 
                 streamOut.AutoFlush = true;
                 streamOut.WriteLine("//Portnr: " + ownPortInt);
-                Console.WriteLine("written to stream");
+                Console.WriteLine("//written to stream");
                 bool obtained = false;
                 while (!obtained)
                 {
@@ -284,7 +345,7 @@ namespace NetChange
                         int portnr = int.Parse(parts[1]) - 55500;
                         streamsOut[portnr] = streamOut;
                         streamsIn[portnr] = streamIn;
-                        Console.WriteLine("Stream saved");
+                        Console.WriteLine("//Stream saved");
                         threads[portnr] = new Thread(communicationHandler);
                         threads[portnr].Start(portnr);
                         obtained = true;
