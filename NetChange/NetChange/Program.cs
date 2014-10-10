@@ -20,8 +20,9 @@ namespace NetChange
         static int nrOfNbs;
         static Thread[] threads;
         static List<int> nbPorts;
-        static int[] connection;
+        static int[,] ndis;
         static int[] distances;
+        static int[] preferred;
 
         //Async server
         public static ManualResetEvent allDone = new ManualResetEvent(false),
@@ -34,9 +35,11 @@ namespace NetChange
             streamsOut = new StreamWriter[19];
             streamsIn = new StreamReader[19];
             client = new TcpClient[19];
-            connection = new int[19];
+            
             nbPorts = new List<int>();
             distances = new int[20];
+            preferred = new int[20];
+            ndis = new int[20, 20];
 
             //assigning own port number
             ownPort = args[0];
@@ -45,17 +48,29 @@ namespace NetChange
 
 
             nrOfNbs = args.Length - 2;
-            threads = new Thread[21];
+            threads = new Thread[22];
             //starting threads for console handling and new connections
-            threads[0] = new Thread(consoleHandler);
-            threads[0].Start();
-            threads[1] = new Thread(connectionHandler);
-            threads[1].Start();
+            threads[20] = new Thread(consoleHandler);
+            threads[20].Start();
+            threads[21] = new Thread(connectionHandler);
+            threads[21].Start();
 
             //starting the server
             server = new TcpListener(IPAddress.Any, ownPortInt);
             server.Start();
+            
+            //assigning maxvalue to all distances/ndis
+            for (int x = 0; x < distances.Length; x++)
+            {
+                distances[x] = int.MaxValue;
+                for (int y = 0; y < ndis.GetLength(1); y++)
+                {
+                    ndis[x, y] = int.MaxValue;
+                }
+            }
 
+            distances[ownPortInt - 55500] = 0;
+            preferred[ownPortInt - 55500] = ownPortInt;
             //Looping through neighbours and assigning either as a client to the neighbour, or accepting the neighbour as a client
             for (int i = 1; i < args.Length; i++)
             {
@@ -64,35 +79,20 @@ namespace NetChange
                 int calcPort = port - 55500;
                 nbPorts.Add(i);
                 distances[calcPort] = 1; //Neighbour
-                connection[i] = port;
+               
                 if (port < ownPortInt)
                 {
-                    threads[calcPort + 2] = new Thread(asyncCreate);
-                    threads[calcPort + 2].Start(port);
-                   
+                    threads[calcPort] = new Thread(asyncCreate);
+                    threads[calcPort].Start(port);
                 }
-                else
-                {
-                    
-                    threads[calcPort + 2] = new Thread(asyncAccept);
-                    threads[calcPort + 2].Start();
-                    
-                }
-
+                
             }
 
             //STILL TO DO: Join all active threads
 
-
-            distances[ownPortInt - 55500] = 0;
-
-
             Console.ReadKey();
         }
 
-        
-
-        
         private static void consoleHandler()
         {
             //handling the operations which can be used as input in the console
@@ -114,7 +114,7 @@ namespace NetChange
                 }
 
 
-                //still to implement!! (when server, when client)
+                
                 else if (prog == "C")
                 {
                     int poortnr = int.Parse(words[1]);
@@ -128,86 +128,25 @@ namespace NetChange
                         threads[poortnr - 55500] = new Thread(asyncGetConn);
                         threads[poortnr - 55500].Start(poortnr);
                     }
-
-
-
-                    nbPorts.Add(poortnr);
-
-                    
                 }
 
                 else if (prog == "D")
                 {
                     int poortnr = int.Parse(words[1]);
                     sendMsg(poortnr, "Disconnect" + ownPort);
-                    threads[poortnr - 55500 + 2].Abort();
+                    threads[poortnr - 55500].Abort();
                 }
             }
 
         }
 
-        private static void asyncGetConn(object obj)
-        {
-            int portnr = (int)obj;
-
-            try
-            {
-                //create client on the server identified by portnr
-
-                TcpClient client = new TcpClient();
-
-                client.BeginConnect("localhost", portnr, new AsyncCallback(asyncGetConnCB), client);
-                connectDone.WaitOne();
-                Console.WriteLine("Verbonden: " + portnr);
-            }
-            catch { }
-
-
-        }
-
-        private static void asyncGetConnCB(IAsyncResult ar)
-        {
-            try
-            {
-                TcpClient client = (TcpClient)ar.AsyncState;
-                client.EndConnect(ar);
-                Console.WriteLine("//Connect complete");
-
-                connectDone.Set();
-                StreamReader streamIn = new StreamReader(client.GetStream());
-                StreamWriter streamOut = new StreamWriter(client.GetStream());
-
-                streamOut.AutoFlush = true;
-                streamOut.WriteLine("//PleasePortnr: " + ownPortInt);
-                Console.WriteLine("//asked to connect");
-                bool verified = false;
-                while (!verified)
-                {
-                    string line = streamIn.ReadLine();
-                    string[] parts = line.Split(' ');
-                    if (parts[0] == "//Close")
-                    {
-                        client.Close();
-                        verified = true;
-                    }
-
-                }
-                
-
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e);
-            }
-        }
+    
         //Working sending messages over the socket using the stream according to the portnr
         private static void sendMsg(int poortnr, string msg)
         {
 
             streamsOut[poortnr - 55500].WriteLine("Hello There");
             Console.WriteLine("Message Sent");
-
-
         }
 
         private static void showRoutingTable()
@@ -215,6 +154,26 @@ namespace NetChange
            // throw new NotImplementedException();
         }
 
+        private static void communicationHandler(object obj)
+        {
+            int portnr = (int)obj;
+            StreamReader streamIn = streamsIn[portnr];
+            while (true)
+            {
+                string msg = streamIn.ReadLine();
+                Console.WriteLine(msg);
+            }
+        }
+
+        private static void sendMyDist(int poortnr, int newdistance)
+        {
+            foreach (int port in nbPorts)
+            {
+                sendMsg(port, "MYDIST: " + poortnr + " " + newdistance);
+            }
+        }
+        
+        //--------------------All Socket operations-----------------------------------------
         private static void connectionHandler()
         {
             while (true)
@@ -230,7 +189,6 @@ namespace NetChange
             }
         }
 
-        
         private static void asyncAccept()
         {
             try {
@@ -269,7 +227,9 @@ namespace NetChange
                     streamsIn[portnr] = streamIn;
                     Console.WriteLine("Stream saved");
                     threads[portnr] = new Thread(communicationHandler);
-                    threads[portnr].Start(portnr);
+                    threads[portnr].Start(portnr + 55500);
+                    distances[portnr] = 1;
+                    nbPorts.Add(portnr + 55500);
                     obtained = true;
                 }
 
@@ -284,17 +244,6 @@ namespace NetChange
                 }
             }
             
-        }
-
-        private static void communicationHandler(object obj)
-        {
-            int portnr = (int)obj;
-            StreamReader streamIn = streamsIn[portnr];
-            while (true)
-            {
-                string msg = streamIn.ReadLine();
-                Console.WriteLine(msg);
-            }
         }
 
         private static void asyncCreate(object t)
@@ -347,7 +296,9 @@ namespace NetChange
                         streamsIn[portnr] = streamIn;
                         Console.WriteLine("//Stream saved");
                         threads[portnr] = new Thread(communicationHandler);
-                        threads[portnr].Start(portnr);
+                        threads[portnr].Start(portnr + 55500);
+                        distances[portnr] = 1;
+                        nbPorts.Add(portnr + 55500);
                         obtained = true;
                     }
                 }
@@ -359,7 +310,64 @@ namespace NetChange
                 Console.WriteLine(e);
             }
         }
+
+        private static void asyncGetConn(object obj)
+        {
+            int portnr = (int)obj;
+
+            try
+            {
+                //create client on the server identified by portnr
+
+                TcpClient client = new TcpClient();
+
+                client.BeginConnect("localhost", portnr, new AsyncCallback(asyncGetConnCB), client);
+                connectDone.WaitOne();
+                Console.WriteLine("Verbonden: " + portnr);
+            }
+            catch { }
+
+
+        }
+
+        private static void asyncGetConnCB(IAsyncResult ar)
+        {
+            try
+            {
+                TcpClient client = (TcpClient)ar.AsyncState;
+                client.EndConnect(ar);
+                Console.WriteLine("//Connect complete");
+
+                connectDone.Set();
+                StreamReader streamIn = new StreamReader(client.GetStream());
+                StreamWriter streamOut = new StreamWriter(client.GetStream());
+
+                streamOut.AutoFlush = true;
+                streamOut.WriteLine("//PleasePortnr: " + ownPortInt);
+                Console.WriteLine("//asked to connect");
+                bool verified = false;
+                while (!verified)
+                {
+                    string line = streamIn.ReadLine();
+                    string[] parts = line.Split(' ');
+                    if (parts[0] == "//Close")
+                    {
+                        client.Close();
+                        verified = true;
+                    }
+
+                }
+
+
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
+        }
     }
+
+
 
 
 }
