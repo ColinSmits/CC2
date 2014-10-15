@@ -24,13 +24,13 @@ namespace NetChange
         static int[] distances;
         static int[] preferred;
 
-        static object ndisLock = new Object() , distprefLock = new Object();
+        static object ndisLock = new Object() , distprefLock = new Object(), listlock = new Object();
 
         //Async server
         public static ManualResetEvent allDone = new ManualResetEvent(false),
-                                       connectDone = new ManualResetEvent(false); 
-                                       
+                                       connectDone = new ManualResetEvent(false);
 
+        // C:\Users\f111181\Source\Repos\CC2\NetChange\NetChange\bin\Debug
         static void Main(string[] args)
         {
             //initializing arrays/lists
@@ -91,7 +91,7 @@ namespace NetChange
 
             //STILL TO DO: Join all active threads
 
-            Console.ReadKey();
+            
         }
 
         private static void consoleHandler()
@@ -145,16 +145,25 @@ namespace NetChange
         //Working sending messages over the socket using the stream according to the portnr
         private static void sendMsg(int poortnr, string msg)
         {
-
-            streamsOut[poortnr - 55500].WriteLine(msg);
+            lock (distprefLock)
+            {
+                streamsOut[preferred[poortnr - 55500] - 55500].WriteLine(msg);
+            }
             Console.WriteLine("Message Sent");
         }
 
         private static void showRoutingTable()
         {
-            for (int x = 0; x < 5; x++)
+            for (int x = 0; x < 20; x++)
             {
-                Console.WriteLine((55500 + x) + " " + distances[x]);
+                if (distances[x] < 21)
+                {
+                    string pref = preferred[x] + "";
+                    if (distances[x] == 0)
+                        pref = "local";
+
+                    Console.WriteLine((55500 + x) + " " + distances[x] + " " + pref);
+                }
             }
         }
 
@@ -189,20 +198,39 @@ namespace NetChange
                     
                     ndis[portnr, changedP] = newDis - 1;
                     distances[changedP] = newDis;
+                    preferred[changedP] = int.Parse(parts[3]);
                 }
             }
         }
 
         private static void sendMyDist(int poortnr, int newdistance)
         {
-            foreach (int port in nbPorts)
+            lock (listlock)
             {
-                Console.WriteLine(port);
-                sendMsg(port, "MYDIST: " + poortnr + " " + newdistance + " " + ownPort);
+                foreach (int port in nbPorts)
+                {
+                    Console.WriteLine(port);
+                    sendMsg(port, "MYDIST: " + poortnr + " " + newdistance + " " + ownPort);
+                }
+            }
+        }
+
+        private static void sendAllDist(int poortnr)
+        {
+            lock (ndisLock)
+            {
+                for (int x = 0; x < distances.Length; x++)
+                {
+                    if (distances[x] < 21)
+                    {
+                        sendMsg(poortnr, "MYDIST: " + (x + 55500) + " " + distances[x] + " " + ownPort);
+                    }
+                }
             }
         }
         
-        //--------------------All Socket operations-----------------------------------------
+#region Socket Operations
+
         private static void connectionHandler()
         {
             while (true)
@@ -214,7 +242,9 @@ namespace NetChange
                     server.BeginAcceptTcpClient(new AsyncCallback(asyncAcceptCB), server);
                     allDone.WaitOne();
                 }
-                catch { }
+                catch {
+                    Thread.Sleep(10);
+                }
             }
         }
 
@@ -257,10 +287,18 @@ namespace NetChange
                     Console.WriteLine("Stream saved");
                     threads[portnr] = new Thread(communicationHandler);
                     threads[portnr].Start(portnr);
-                    distances[portnr] = 1;
-                    nbPorts.Add(portnr + 55500);
+                    lock (ndisLock)
+                    {
+                        distances[portnr] = 1;
+                        preferred[portnr] = portnr + 55500;
+                    }
+                    lock (listlock)
+                    {
+                        nbPorts.Add(portnr + 55500);
+                    }
                     sendMyDist(portnr + 55500, 1);
                     obtained = true;
+                    sendAllDist(portnr + 55500);
                 }
 
                 if (parts[0] == "//PleasePortnr:")
@@ -269,7 +307,7 @@ namespace NetChange
                     threads[portnr] = new Thread(asyncCreate);
                     threads[portnr].Start(portnr + 55500);
                     streamOut.WriteLine("//Close");
-                    accClient.Close();
+                   // accClient.Close();
                     obtained = true;
                 }
             }
@@ -327,10 +365,18 @@ namespace NetChange
                         Console.WriteLine("//Stream saved");
                         threads[portnr] = new Thread(communicationHandler);
                         threads[portnr].Start(portnr);
-                        distances[portnr] = 1;
-                        nbPorts.Add(portnr + 55500);
+                        lock (ndisLock)
+                        {
+                            distances[portnr] = 1;
+                            preferred[portnr] = portnr + 55500;
+                        }
+                        lock (listlock)
+                        {
+                            nbPorts.Add(portnr + 55500);
+                        }
                         sendMyDist(portnr + 55500, 1);
                         obtained = true;
+                        sendAllDist(portnr + 55500);
                     }
                 }
 
@@ -383,7 +429,7 @@ namespace NetChange
                     string[] parts = line.Split(' ');
                     if (parts[0] == "//Close")
                     {
-                        client.Close();
+               //         client.Close();
                         verified = true;
                     }
 
@@ -398,7 +444,7 @@ namespace NetChange
         }
     }
 
-
+#endregion
 
 
 }
