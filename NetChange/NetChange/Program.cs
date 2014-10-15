@@ -30,7 +30,7 @@ namespace NetChange
         public static ManualResetEvent allDone = new ManualResetEvent(false),
                                        connectDone = new ManualResetEvent(false);
 
-        // C:\Users\f111181\Source\Repos\CC2\NetChange\NetChange\bin\Debug
+        
         static void Main(string[] args)
         {
             //initializing arrays/lists
@@ -110,7 +110,7 @@ namespace NetChange
                 else if (prog == "B")
                 {
                     int poortnr = int.Parse(words[1]);
-                    string msg = words[2];
+                    string msg = "MSG" + " " + poortnr + " " + words[2];
                     sendMsg(poortnr, msg);
                 }
 
@@ -182,9 +182,22 @@ namespace NetChange
                     Console.WriteLine("//MYDIST ontvangen");
                     calcDist(parts, portnr);
                 }
+                else if (parts[0] == "MSG")
+                {
+                    if (parts[1] == ownPort)
+                    {
+                        Console.WriteLine(parts[2]);
+                    }
+                    else
+                    {
+                        int toPort = int.Parse(parts[1]);
+                        sendMsg(toPort, msg);
+                        Console.WriteLine("Bericht voor " + toPort + " doorgestuurd naar " + preferred[toPort - 55500]);
+                    }
+                }
             }
         }
-
+        //problem going on with ndis and distances (fix: update ndis no matter what)
         private static void calcDist(string[] parts, int portnr)
         {
             int changedP = int.Parse(parts[1]) - 55500;
