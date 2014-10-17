@@ -23,21 +23,22 @@ namespace NetChange
         static int[,] ndis;
         static int[] distances;
         static int[] preferred;
+        static int max;
 
-        static object ndisLock = new Object() , distprefLock = new Object(), listlock = new Object();
+        private static object ndisLock = new Object(), distLock = new Object(), prefLock = new Object(), listlock = new Object();
 
         //Async server
         public static ManualResetEvent allDone = new ManualResetEvent(false),
                                        connectDone = new ManualResetEvent(false);
 
-        
+
         static void Main(string[] args)
         {
             //initializing arrays/lists
             streamsOut = new StreamWriter[19];
             streamsIn = new StreamReader[19];
             client = new TcpClient[19];
-            
+            max = 20;
             nbPorts = new List<int>();
             distances = new int[20];
             preferred = new int[20];
@@ -60,14 +61,14 @@ namespace NetChange
             //starting the server
             server = new TcpListener(IPAddress.Any, ownPortInt);
             server.Start();
-            
+
             //assigning maxvalue to all distances/ndis
             for (int x = 0; x < distances.Length; x++)
             {
-                distances[x] = 21;
+                distances[x] = max;
                 for (int y = 0; y < ndis.GetLength(1); y++)
                 {
-                    ndis[x, y] = 21;
+                    ndis[x, y] = max;
                 }
             }
 
@@ -80,18 +81,18 @@ namespace NetChange
                 int port = int.Parse(args[i]);
                 int calcPort = port - 55500;
                 distances[calcPort] = 1; //Neighbour
-               
+
                 if (port < ownPortInt)
                 {
                     threads[calcPort] = new Thread(asyncCreate);
                     threads[calcPort].Start(port);
                 }
-                
+
             }
 
             //STILL TO DO: Join all active threads
 
-            
+
         }
 
         private static void consoleHandler()
@@ -115,7 +116,7 @@ namespace NetChange
                 }
 
 
-                
+
                 else if (prog == "C")
                 {
                     int poortnr = int.Parse(words[1]);
@@ -134,37 +135,79 @@ namespace NetChange
                 else if (prog == "D")
                 {
                     int poortnr = int.Parse(words[1]);
-                    sendMsg(poortnr, "Disconnect" + ownPort);
+                    lock (listlock)
+                    {
+                        nbPorts.Remove(poortnr);
+                    }
+                    sendMsg(poortnr, "Disconnect: " + ownPort);
+                  
+                    disCon(poortnr);
                     threads[poortnr - 55500].Abort();
                 }
+
+
             }
 
         }
 
-    
+        private static void disCon(int poortnr)
+        {
+            Console.WriteLine("Verbroken: " + poortnr);
+            int recalcport = poortnr - 55500;
+            int lowDist = max;
+            int pref = 0;
+            for (int x = 0; x < max; x++)
+            {
+                if (ndis[x, recalcport] < lowDist)
+                {
+                    lowDist = ndis[x, recalcport];
+                    pref = x + 55500;
+                }
+            }
+            lock (distLock)
+            {
+                distances[recalcport] = lowDist;
+            }
+            lock (prefLock)
+            {
+                preferred[recalcport] = pref;
+            }
+            if (lowDist == max)
+            {
+                Console.WriteLine("Onbereikbaar: " + poortnr);
+            }
+            else
+            {
+                Console.WriteLine("Afstand naar " + poortnr + " is nu " + lowDist + " via " + pref);
+            }
+            sendMyDist(poortnr, lowDist);
+
+        }
+
+
         //Working sending messages over the socket using the stream according to the portnr
         private static void sendMsg(int poortnr, string msg)
         {
-            lock (distprefLock)
-            {
-                streamsOut[preferred[poortnr - 55500] - 55500].WriteLine(msg);
-            }
-            Console.WriteLine("Message Sent");
+            streamsOut[preferred[poortnr - 55500] - 55500].WriteLine(msg);
         }
 
         private static void showRoutingTable()
         {
             for (int x = 0; x < 20; x++)
             {
-                if (distances[x] < 21)
+                if (distances[x] < max)
                 {
                     string pref = preferred[x] + "";
                     if (distances[x] == 0)
                         pref = "local";
-
-                    Console.WriteLine((55500 + x) + " " + distances[x] + " " + pref);
+                    lock (distLock)
+                    {
+                        Console.WriteLine((55500 + x) + " " + distances[x] + " " + pref);
+                    }
                 }
             }
+
+
         }
 
         private static void communicationHandler(object obj)
@@ -177,10 +220,7 @@ namespace NetChange
                 string[] parts = msg.Split(' ');
                 if (parts[0] == "MYDIST:")
                 {
-                    Console.WriteLine(parts[1] + " " + parts[2] + " " + parts[3]);
-                    
-                    Console.WriteLine("//MYDIST ontvangen");
-                    calcDist(parts, portnr);
+                    calcDist(parts);
                 }
                 else if (parts[0] == "MSG")
                 {
@@ -195,26 +235,53 @@ namespace NetChange
                         Console.WriteLine("Bericht voor " + toPort + " doorgestuurd naar " + preferred[toPort - 55500]);
                     }
                 }
-            }
-        }
-        //problem going on with ndis and distances (fix: update ndis no matter what)
-        private static void calcDist(string[] parts, int portnr)
-        {
-            int changedP = int.Parse(parts[1]) - 55500;
-            int newDis = int.Parse(parts[2]) + 1;
-            
-            if (newDis < distances[changedP])
-            {
-                sendMyDist(changedP + 55500, newDis);
-                lock (ndisLock)
+                else if (parts[0] == "Disconnect:")
                 {
-                    
-                    ndis[portnr, changedP] = newDis - 1;
-                    distances[changedP] = newDis;
-                    preferred[changedP] = int.Parse(parts[3]);
+                    int port = int.Parse(parts[1]);
+                    nbPorts.Remove(port);
+                    disCon(port);
                 }
             }
         }
+        //problem going on with ndis and distances (fix: update ndis no matter what)
+        private static void calcDist(string[] parts)
+        {
+            int changedP = int.Parse(parts[1]) - 55500;
+            int newDis = int.Parse(parts[2]) + 1;
+            int newPort = int.Parse(parts[3]) - 55500;
+            
+            if (newDis == max)
+            {
+                Console.WriteLine("Onbereikbaar: " + parts[1]);
+                lock (distLock)
+                {
+                    distances[changedP] = newDis;
+                }
+                lock (prefLock)
+                {
+                    preferred[changedP] = 0;
+                }
+                
+            }
+            else if (newDis < distances[changedP])
+            {
+                lock (distLock)
+                {
+                    distances[changedP] = newDis;
+                }
+                lock (prefLock)
+                {
+                    preferred[changedP] = int.Parse(parts[3]);
+                }
+                Console.WriteLine("Afstand naar " + parts[1] + " is nu " + newDis + " via " + parts[3]);
+                sendMyDist(changedP + 55500, newDis);
+                ndis[newPort, changedP] = newDis - 1;
+            }
+
+        }
+
+
+
 
         private static void sendMyDist(int poortnr, int newdistance)
         {
@@ -222,15 +289,15 @@ namespace NetChange
             {
                 foreach (int port in nbPorts)
                 {
-                    Console.WriteLine(port);
                     sendMsg(port, "MYDIST: " + poortnr + " " + newdistance + " " + ownPort);
                 }
             }
+
         }
 
         private static void sendAllDist(int poortnr)
         {
-            lock (ndisLock)
+            lock (distLock)
             {
                 for (int x = 0; x < distances.Length; x++)
                 {
@@ -241,8 +308,8 @@ namespace NetChange
                 }
             }
         }
-        
-#region Socket Operations
+
+        #region Socket Operations
 
         private static void connectionHandler()
         {
@@ -251,11 +318,12 @@ namespace NetChange
                 try
                 {
                     allDone.Reset();
-                    Console.WriteLine("Awaiting connection...");
+
                     server.BeginAcceptTcpClient(new AsyncCallback(asyncAcceptCB), server);
                     allDone.WaitOne();
                 }
-                catch {
+                catch
+                {
                     Thread.Sleep(10);
                 }
             }
@@ -263,12 +331,14 @@ namespace NetChange
 
         private static void asyncAccept()
         {
-            try {
-            Console.WriteLine("Awaiting connection...");
-            server.BeginAcceptTcpClient(new AsyncCallback(asyncAcceptCB), server);
-            allDone.WaitOne();
+            try
+            {
+
+                server.BeginAcceptTcpClient(new AsyncCallback(asyncAcceptCB), server);
+                allDone.WaitOne();
             }
-            catch (Exception e){
+            catch (Exception e)
+            {
                 Console.WriteLine(e);
             }
         }
@@ -278,14 +348,14 @@ namespace NetChange
             allDone.Set();
             TcpListener listener = (TcpListener)ar.AsyncState;
             TcpClient accClient = listener.EndAcceptTcpClient(ar);
-            Console.WriteLine("//Client accepted");
+
 
             StreamReader streamIn = new StreamReader(accClient.GetStream());
             StreamWriter streamOut = new StreamWriter(accClient.GetStream());
 
             streamOut.AutoFlush = true;
             streamOut.WriteLine("//Portnr: " + ownPort);
-            Console.WriteLine("//written to stream");
+
             bool obtained = false;
             while (!obtained)
             {
@@ -294,21 +364,24 @@ namespace NetChange
                 if (parts[0] == "//Portnr:")
                 {
                     int portnr = int.Parse(parts[1]) - 55500;
-                    Console.WriteLine("Verbonden: " + portnr);
+                    Console.WriteLine("Verbonden: " + parts[1]);
                     streamsOut[portnr] = streamOut;
                     streamsIn[portnr] = streamIn;
-                    Console.WriteLine("Stream saved");
-                    threads[portnr] = new Thread(communicationHandler);
-                    threads[portnr].Start(portnr);
-                    lock (ndisLock)
-                    {
-                        distances[portnr] = 1;
-                        preferred[portnr] = portnr + 55500;
-                    }
+
+
+                    distances[portnr] = 1;
+
+                    preferred[portnr] = portnr + 55500;
+
+
                     lock (listlock)
                     {
                         nbPorts.Add(portnr + 55500);
                     }
+
+                    threads[portnr] = new Thread(communicationHandler);
+                    threads[portnr].Start(portnr);
+
                     sendMyDist(portnr + 55500, 1);
                     obtained = true;
                     sendAllDist(portnr + 55500);
@@ -320,34 +393,32 @@ namespace NetChange
                     threads[portnr] = new Thread(asyncCreate);
                     threads[portnr].Start(portnr + 55500);
                     streamOut.WriteLine("//Close");
-                   // accClient.Close();
+                    // accClient.Close();
                     obtained = true;
                 }
             }
-            
+
         }
 
         private static void asyncCreate(object t)
         {
             int portnr = (int)t;
-          
-            Console.WriteLine("stage 1");
-           
+
             try
             {
                 //create client on the server identified by portnr
-                              
+
                 TcpClient client = new TcpClient();
 
                 client.BeginConnect("localhost", portnr, new AsyncCallback(asyncCreateCB), client);
                 connectDone.WaitOne();
                 Console.WriteLine("Verbonden: " + portnr);
-                
+
 
             }
             catch { }
-           
-           
+
+
         }
 
         private static void asyncCreateCB(IAsyncResult ar)
@@ -356,15 +427,15 @@ namespace NetChange
             {
                 TcpClient client = (TcpClient)ar.AsyncState;
                 client.EndConnect(ar);
-                Console.WriteLine("//Connect complete");
-              
+
+
                 connectDone.Set();
                 StreamReader streamIn = new StreamReader(client.GetStream());
                 StreamWriter streamOut = new StreamWriter(client.GetStream());
 
                 streamOut.AutoFlush = true;
                 streamOut.WriteLine("//Portnr: " + ownPortInt);
-                Console.WriteLine("//written to stream");
+
                 bool obtained = false;
                 while (!obtained)
                 {
@@ -375,25 +446,24 @@ namespace NetChange
                         int portnr = int.Parse(parts[1]) - 55500;
                         streamsOut[portnr] = streamOut;
                         streamsIn[portnr] = streamIn;
-                        Console.WriteLine("//Stream saved");
-                        threads[portnr] = new Thread(communicationHandler);
-                        threads[portnr].Start(portnr);
-                        lock (ndisLock)
-                        {
-                            distances[portnr] = 1;
-                            preferred[portnr] = portnr + 55500;
-                        }
+
+                        distances[portnr] = 1;
+                        preferred[portnr] = portnr + 55500;
                         lock (listlock)
                         {
                             nbPorts.Add(portnr + 55500);
                         }
+
+                        threads[portnr] = new Thread(communicationHandler);
+                        threads[portnr].Start(portnr);
+
                         sendMyDist(portnr + 55500, 1);
                         obtained = true;
                         sendAllDist(portnr + 55500);
                     }
                 }
 
-               
+
             }
             catch (Exception e)
             {
@@ -426,7 +496,7 @@ namespace NetChange
             {
                 TcpClient client = (TcpClient)ar.AsyncState;
                 client.EndConnect(ar);
-                Console.WriteLine("//Connect complete");
+
 
                 connectDone.Set();
                 StreamReader streamIn = new StreamReader(client.GetStream());
@@ -434,7 +504,7 @@ namespace NetChange
 
                 streamOut.AutoFlush = true;
                 streamOut.WriteLine("//PleasePortnr: " + ownPortInt);
-                Console.WriteLine("//asked to connect");
+
                 bool verified = false;
                 while (!verified)
                 {
@@ -442,7 +512,7 @@ namespace NetChange
                     string[] parts = line.Split(' ');
                     if (parts[0] == "//Close")
                     {
-               //         client.Close();
+                        //         client.Close();
                         verified = true;
                     }
 
@@ -457,7 +527,7 @@ namespace NetChange
         }
     }
 
-#endregion
+        #endregion
 
 
 }
