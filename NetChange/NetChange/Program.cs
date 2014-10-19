@@ -338,12 +338,13 @@ namespace NetChange
                         {
                             preferred[changedP] = pref;
                         }
-                        if (!same)
+                        if (lowDist + 1 >= max && lowDist + 1 >= distances[changedP])
                         {
                             Console.WriteLine("Afstand naar " + parts[1] + " is nu " + distances[changedP] + " via " + preferred[changedP]);
 
-                            sendMyDist(changedP + 55500, distances[changedP]);
+                            
                         }
+                        sendMyDist(changedP + 55500, distances[changedP]);
                     }
                 }
 
