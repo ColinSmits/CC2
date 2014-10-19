@@ -25,7 +25,7 @@ namespace NetChange
         static int[] preferred;
         static int max;
 
-        private static object ndisLock = new Object(), distLock = new Object(), prefLock = new Object(), listlock = new Object();
+        private static object ndisLock = new Object(), distLock = new Object(), prefLock = new Object(), listlock = new Object(), calcLock = new Object();
 
         //Async server
         public static ManualResetEvent allDone = new ManualResetEvent(false),
@@ -90,10 +90,6 @@ namespace NetChange
                 }
 
             }
-
-            //STILL TO DO: Join all active threads
-
-
         }
 
         private static void consoleHandler()
@@ -237,7 +233,10 @@ namespace NetChange
                 string[] parts = msg.Split(' ');
                 if (parts[0] == "MYDIST:")
                 {
-                    calcDist(parts);
+                    lock (calcLock)
+                    {
+                        calcDist(parts);
+                    }
                 }
                 else if (parts[0] == "MSG")
                 {
@@ -341,6 +340,7 @@ namespace NetChange
                         }
                         if (!same)
                         {
+
                             Console.WriteLine("Afstand naar " + parts[1] + " is nu " + distances[changedP] + " via " + preferred[changedP]);
 
 
