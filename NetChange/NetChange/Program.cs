@@ -181,9 +181,21 @@ namespace NetChange
             ndis[ownPortInt - 55500, recalcport] = max + 1;
             string[] s = new string[4];
             s[1] = poortnr + "";
-            s[2] = (max + 1) + "";
+            s[2] = max + "";
             s[3] = ownPortInt + "";
             calcDist(s);
+
+            for (int y = 0; y < max; y++)
+            {
+                if (preferred[y] == poortnr)
+                {
+                    
+                    s[1] = (y + 55500) + "";
+                    s[2] = (max + 1) + "";
+                    s[3] = ownPortInt + "";
+                    calcDist(s);
+                }
+            }
           
         }
 
@@ -275,16 +287,17 @@ namespace NetChange
                 if (lowDist >= max)
                 {
                     Console.WriteLine("Onbereikbaar: " + parts[1]);
-                    if (nbPorts.Contains(changedP + 55500))
-                    {
-                        nbPorts.Remove(changedP + 55500);
-                    }
+                   
                     lock (ndisLock)
                     {
                         for (int n = 0; n < max; n++)
                         {
                             ndis[changedP, n] = max + 1;
                         }
+                    }
+                    if (lowDist <= max && distances[changedP] != max )
+                    {
+                        sendMyDist(changedP + 55500, 20);
                     }
                     lock (distLock)
                     {
@@ -294,10 +307,7 @@ namespace NetChange
                     {
                         preferred[changedP] = 0;
                     }
-                    if (lowDist <= max)
-                    {
-                        sendMyDist(changedP + 55500, 21);
-                    }
+                    
                     for (int y = 0; y < max; y++)
                     {
                         if (preferred[y] == changedP + 55500)
