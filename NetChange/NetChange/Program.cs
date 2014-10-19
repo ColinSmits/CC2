@@ -81,7 +81,8 @@ namespace NetChange
                 int port = int.Parse(args[i]);
                 int calcPort = port - 55500;
                 distances[calcPort] = 1; //Neighbour
-
+                ndis[ownPortInt - 55500, calcPort] = 1;
+                ndis[calcPort, ownPortInt - 55500] = 1;
                 if (port < ownPortInt)
                 {
                     threads[calcPort] = new Thread(asyncCreate);
@@ -338,13 +339,13 @@ namespace NetChange
                         {
                             preferred[changedP] = pref;
                         }
-                        if (lowDist + 1 >= max && lowDist + 1 >= distances[changedP])
+                        if (!same)
                         {
                             Console.WriteLine("Afstand naar " + parts[1] + " is nu " + distances[changedP] + " via " + preferred[changedP]);
 
-                            
+
+                            sendMyDist(changedP + 55500, distances[changedP]);
                         }
-                        sendMyDist(changedP + 55500, distances[changedP]);
                     }
                 }
 
