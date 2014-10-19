@@ -200,8 +200,10 @@ namespace NetChange
         //Working sending messages over the socket using the stream according to the portnr
         private static void sendMsg(int poortnr, string msg)
         {
-           
-            streamsOut[preferred[poortnr - 55500] - 55500].WriteLine(msg);
+            lock (prefLock)
+            {
+                streamsOut[preferred[poortnr - 55500] - 55500].WriteLine(msg);
+            }
         }
 
         private static void showRoutingTable()
@@ -446,9 +448,12 @@ namespace NetChange
                     distances[portnr] = 1;
 
                     preferred[portnr] = portnr + 55500;
-                    ndis[ownPortInt - 55500, portnr] = 1;
-                    ndis[portnr, portnr] = 0;
-                    ndis[portnr, ownPortInt - 55500] = 1;
+                    lock (ndisLock)
+                    {
+                        ndis[ownPortInt - 55500, portnr] = 1;
+                        ndis[portnr, portnr] = 0;
+                        ndis[portnr, ownPortInt - 55500] = 1;
+                    }
 
                     lock (listlock)
                     {
@@ -522,12 +527,15 @@ namespace NetChange
                         int portnr = int.Parse(parts[1]) - 55500;
                         streamsOut[portnr] = streamOut;
                         streamsIn[portnr] = streamIn;
-
                         distances[portnr] = 1;
+                        
                         preferred[portnr] = portnr + 55500;
-                        ndis[ownPortInt - 55500, portnr] = 1;
-                        ndis[portnr, portnr] = 0;
-                        ndis[portnr, ownPortInt - 55500] = 1;
+                        lock (ndisLock)
+                        {
+                            ndis[ownPortInt - 55500, portnr] = 1;
+                            ndis[portnr, portnr] = 0;
+                            ndis[portnr, ownPortInt - 55500] = 1;
+                        }
                         lock (listlock)
                         {
                             nbPorts.Add(portnr + 55500);
