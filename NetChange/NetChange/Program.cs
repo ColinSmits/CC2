@@ -25,6 +25,8 @@ namespace NetChange
         static int[] preferred;
         static int max;
 
+        static int nrOfNodes;
+
         private static object ndisLock = new Object(), distLock = new Object(), prefLock = new Object(), listlock = new Object(), calcLock = new Object();
 
         //Async server
@@ -35,6 +37,7 @@ namespace NetChange
         static void Main(string[] args)
         {
             //initializing arrays/lists
+            nrOfNodes = 1;
             streamsOut = new StreamWriter[19];
             streamsIn = new StreamReader[19];
             client = new TcpClient[19];
@@ -83,6 +86,7 @@ namespace NetChange
                 distances[calcPort] = 1; //Neighbour
                 ndis[ownPortInt - 55500, calcPort] = 1;
                 ndis[calcPort, ownPortInt - 55500] = 1;
+            
                 if (port < ownPortInt)
                 {
                     threads[calcPort] = new Thread(asyncCreate);
@@ -289,7 +293,7 @@ namespace NetChange
                 if (lowDist >= max)
                 {
                     Console.WriteLine("Onbereikbaar: " + parts[1]);
-                   
+                    nrOfNodes--;
                     lock (ndisLock)
                     {
                         for (int n = 0; n < max; n++)
@@ -297,9 +301,9 @@ namespace NetChange
                             ndis[changedP, n] = max + 1;
                         }
                     }
-                    if (lowDist <= max && distances[changedP] != max )
+                    if (lowDist <= nrOfNodes && distances[changedP] < nrOfNodes)
                     {
-                        sendMyDist(changedP + 55500, 20);
+                        sendMyDist(changedP + 55500, nrOfNodes+1);
                     }
                     lock (distLock)
                     {
@@ -459,7 +463,7 @@ namespace NetChange
                     {
                         nbPorts.Add(portnr + 55500);
                     }
-
+                    nrOfNodes++;
                     threads[portnr] = new Thread(communicationHandler);
                     threads[portnr].Start(portnr);
 
@@ -540,7 +544,7 @@ namespace NetChange
                         {
                             nbPorts.Add(portnr + 55500);
                         }
-
+                        nrOfNodes++;
                         threads[portnr] = new Thread(communicationHandler);
                         threads[portnr].Start(portnr);
 
