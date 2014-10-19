@@ -68,10 +68,10 @@ namespace NetChange
                 distances[x] = max;
                 for (int y = 0; y < ndis.GetLength(1); y++)
                 {
-                    ndis[x, y] = max;
+                    ndis[x, y] = max + 1;
                 }
             }
-
+            ndis[ownPortInt - 55500, ownPortInt - 55500] = -1;
             distances[ownPortInt - 55500] = 0;
             preferred[ownPortInt - 55500] = ownPortInt;
             //Looping through neighbours and assigning either as a client to the neighbour, or accepting the neighbour as a client
@@ -111,8 +111,15 @@ namespace NetChange
                 else if (prog == "B")
                 {
                     int poortnr = int.Parse(words[1]);
-                    string msg = "MSG" + " " + poortnr + " " + words[2];
-                    sendMsg(poortnr, msg);
+                    if (poortnr < 55500 || poortnr > 55519 || preferred[poortnr - 55500] < 55500)
+                    {
+                        Console.WriteLine("Poort " + poortnr + " is niet bekend");
+                    }
+                    else
+                    {
+                        string msg = "MSG" + " " + poortnr + " " + words[2];
+                        sendMsg(poortnr, msg);
+                    }
                 }
 
 
@@ -135,14 +142,23 @@ namespace NetChange
                 else if (prog == "D")
                 {
                     int poortnr = int.Parse(words[1]);
+                    bool contain = false;
                     lock (listlock)
                     {
-                        nbPorts.Remove(poortnr);
+                        contain = nbPorts.Contains(poortnr);
                     }
-                    sendMsg(poortnr, "Disconnect: " + ownPort);
-                  
-                    disCon(poortnr);
-                    threads[poortnr - 55500].Abort();
+                    if (!contain)
+                    {
+                        Console.WriteLine("Poort " + poortnr + " is niet bekend");
+                    }
+                    
+                    else
+                    {
+                        sendMsg(poortnr, "Disconnect: " + ownPort);
+
+                        disCon(poortnr);
+                        threads[poortnr - 55500].Abort();
+                    }
                 }
 
 
@@ -154,40 +170,28 @@ namespace NetChange
         {
             Console.WriteLine("Verbroken: " + poortnr);
             int recalcport = poortnr - 55500;
-            int lowDist = max;
-            int pref = 0;
+            lock (listlock)
+            {
+                nbPorts.Remove(poortnr);
+            }
             for (int x = 0; x < max; x++)
             {
-                if (ndis[x, recalcport] < lowDist)
-                {
-                    lowDist = ndis[x, recalcport];
-                    pref = x + 55500;
-                }
+                ndis[recalcport, x] = max + 1;
             }
-            lock (distLock)
-            {
-                distances[recalcport] = lowDist;
-            }
-            lock (prefLock)
-            {
-                preferred[recalcport] = pref;
-            }
-            if (lowDist == max)
-            {
-                Console.WriteLine("Onbereikbaar: " + poortnr);
-            }
-            else
-            {
-                Console.WriteLine("Afstand naar " + poortnr + " is nu " + lowDist + " via " + pref);
-            }
-            sendMyDist(poortnr, lowDist);
-
+            ndis[ownPortInt - 55500, recalcport] = max + 1;
+            string[] s = new string[4];
+            s[1] = poortnr + "";
+            s[2] = (max + 1) + "";
+            s[3] = ownPortInt + "";
+            calcDist(s);
+          
         }
 
 
         //Working sending messages over the socket using the stream according to the portnr
         private static void sendMsg(int poortnr, string msg)
         {
+           
             streamsOut[preferred[poortnr - 55500] - 55500].WriteLine(msg);
         }
 
@@ -238,7 +242,6 @@ namespace NetChange
                 else if (parts[0] == "Disconnect:")
                 {
                     int port = int.Parse(parts[1]);
-                    nbPorts.Remove(port);
                     disCon(port);
                 }
             }
@@ -247,35 +250,94 @@ namespace NetChange
         private static void calcDist(string[] parts)
         {
             int changedP = int.Parse(parts[1]) - 55500;
-            int newDis = int.Parse(parts[2]) + 1;
+            int newDis = int.Parse(parts[2]);
             int newPort = int.Parse(parts[3]) - 55500;
-            
-            if (newDis == max)
+            if (newPort != changedP)
             {
-                Console.WriteLine("Onbereikbaar: " + parts[1]);
-                lock (distLock)
-                {
-                    distances[changedP] = newDis;
+                lock (ndisLock) {
+                ndis[newPort, changedP] = newDis;
                 }
-                lock (prefLock)
-                {
-                    preferred[changedP] = 0;
-                }
-                
             }
-            else if (newDis < distances[changedP])
+
+            if (changedP != ownPortInt - 55500)
             {
-                lock (distLock)
+                int lowDist = max + 1;
+                int pref = 0;
+                for (int x = 0; x < max; x++)
                 {
-                    distances[changedP] = newDis;
+                    if (ndis[x, changedP] < lowDist)
+                    {
+                        lowDist = ndis[x, changedP];
+                        pref = x + 55500;
+                    }
                 }
-                lock (prefLock)
+              
+                if (lowDist >= max)
                 {
-                    preferred[changedP] = int.Parse(parts[3]);
+                    Console.WriteLine("Onbereikbaar: " + parts[1]);
+                    if (nbPorts.Contains(changedP + 55500))
+                    {
+                        nbPorts.Remove(changedP + 55500);
+                    }
+                    lock (ndisLock)
+                    {
+                        for (int n = 0; n < max; n++)
+                        {
+                            ndis[changedP, n] = max + 1;
+                        }
+                    }
+                    lock (distLock)
+                    {
+                        distances[changedP] = max;
+                    }
+                    lock (prefLock)
+                    {
+                        preferred[changedP] = 0;
+                    }
+                    if (lowDist <= max)
+                    {
+                        sendMyDist(changedP + 55500, 21);
+                    }
+                    for (int y = 0; y < max; y++)
+                    {
+                        if (preferred[y] == changedP + 55500)
+                        {
+                            string[] s = new string[4];
+                            s[1] = (y + 55500) + "";
+                            s[2] = (max + 1) + "";
+                            s[3] = ownPortInt + "";
+                            calcDist(s);
+                         }
+                    }
                 }
-                Console.WriteLine("Afstand naar " + parts[1] + " is nu " + newDis + " via " + parts[3]);
-                sendMyDist(changedP + 55500, newDis);
-                ndis[newPort, changedP] = newDis - 1;
+
+                else
+                {
+                    if (lowDist == max)
+                    {
+                        lowDist--;
+                    }
+                    bool same = (lowDist + 1 == distances[changedP]);
+                    if (!same || pref != preferred[changedP])
+                    {
+                        lock (distLock)
+                        {
+                            distances[changedP] = lowDist + 1;
+                        }
+                        lock (prefLock)
+                        {
+                            preferred[changedP] = pref;
+                        }
+                        if (!same)
+                        {
+                            Console.WriteLine("Afstand naar " + parts[1] + " is nu " + distances[changedP] + " via " + preferred[changedP]);
+
+                            sendMyDist(changedP + 55500, distances[changedP]);
+                        }
+                    }
+                }
+
+
             }
 
         }
@@ -301,7 +363,7 @@ namespace NetChange
             {
                 for (int x = 0; x < distances.Length; x++)
                 {
-                    if (distances[x] < 21)
+                    if (distances[x] < max)
                     {
                         sendMsg(poortnr, "MYDIST: " + (x + 55500) + " " + distances[x] + " " + ownPort);
                     }
@@ -372,7 +434,9 @@ namespace NetChange
                     distances[portnr] = 1;
 
                     preferred[portnr] = portnr + 55500;
-
+                    ndis[ownPortInt - 55500, portnr] = 1;
+                    ndis[portnr, portnr] = 0;
+                    ndis[portnr, ownPortInt - 55500] = 1;
 
                     lock (listlock)
                     {
@@ -449,6 +513,9 @@ namespace NetChange
 
                         distances[portnr] = 1;
                         preferred[portnr] = portnr + 55500;
+                        ndis[ownPortInt - 55500, portnr] = 1;
+                        ndis[portnr, portnr] = 0;
+                        ndis[portnr, ownPortInt - 55500] = 1;
                         lock (listlock)
                         {
                             nbPorts.Add(portnr + 55500);
