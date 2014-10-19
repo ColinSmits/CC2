@@ -25,9 +25,7 @@ namespace NetChange
         static int[] preferred;
         static int max;
 
-        static int nrOfNodes;
-
-        private static object ndisLock = new Object(), distLock = new Object(), prefLock = new Object(), listlock = new Object(), calcLock = new Object(), nodesCount = new Object();
+        private static object ndisLock = new Object(), distLock = new Object(), prefLock = new Object(), listlock = new Object(), calcLock = new Object();
 
         //Async server
         public static ManualResetEvent allDone = new ManualResetEvent(false),
@@ -37,7 +35,6 @@ namespace NetChange
         static void Main(string[] args)
         {
             //initializing arrays/lists
-            nrOfNodes = 1;
             streamsOut = new StreamWriter[19];
             streamsIn = new StreamReader[19];
             client = new TcpClient[19];
@@ -86,7 +83,6 @@ namespace NetChange
                 distances[calcPort] = 1; //Neighbour
                 ndis[ownPortInt - 55500, calcPort] = 1;
                 ndis[calcPort, ownPortInt - 55500] = 1;
-            
                 if (port < ownPortInt)
                 {
                     threads[calcPort] = new Thread(asyncCreate);
@@ -152,7 +148,7 @@ namespace NetChange
                     {
                         Console.WriteLine("Poort " + poortnr + " is niet bekend");
                     }
-                    
+
                     else
                     {
                         sendMsg(poortnr, "Disconnect: " + ownPort);
@@ -190,14 +186,14 @@ namespace NetChange
             {
                 if (preferred[y] == poortnr)
                 {
-                    
+
                     s[1] = (y + 55500) + "";
                     s[2] = (max + 1) + "";
                     s[3] = ownPortInt + "";
                     calcDist(s);
                 }
             }
-          
+
         }
 
 
@@ -272,8 +268,9 @@ namespace NetChange
             int newPort = int.Parse(parts[3]) - 55500;
             if (newPort != changedP)
             {
-                lock (ndisLock) {
-                ndis[newPort, changedP] = newDis;
+                lock (ndisLock)
+                {
+                    ndis[newPort, changedP] = newDis;
                 }
             }
 
@@ -289,14 +286,11 @@ namespace NetChange
                         pref = x + 55500;
                     }
                 }
-              
+
                 if (lowDist >= max)
                 {
                     Console.WriteLine("Onbereikbaar: " + parts[1]);
-                    lock (nodesCount)
-                    {
-                        nrOfNodes--;
-                    }
+
                     lock (ndisLock)
                     {
                         for (int n = 0; n < max; n++)
@@ -304,12 +298,9 @@ namespace NetChange
                             ndis[changedP, n] = max + 1;
                         }
                     }
-                    lock (nodesCount)
+                    if (lowDist <= max && distances[changedP] != max)
                     {
-                        if (lowDist <= nrOfNodes && distances[changedP] < nrOfNodes)
-                        {
-                            sendMyDist(changedP + 55500, nrOfNodes + 1);
-                        }
+                        sendMyDist(changedP + 55500, 20);
                     }
                     lock (distLock)
                     {
@@ -319,7 +310,7 @@ namespace NetChange
                     {
                         preferred[changedP] = 0;
                     }
-                    
+
                     for (int y = 0; y < max; y++)
                     {
                         if (preferred[y] == changedP + 55500)
@@ -329,18 +320,15 @@ namespace NetChange
                             s[2] = (max + 1) + "";
                             s[3] = ownPortInt + "";
                             calcDist(s);
-                         }
+                        }
                     }
                 }
 
                 else
                 {
-                    lock (nodesCount)
+                    if (lowDist == max)
                     {
-                        if (lowDist == nrOfNodes)
-                        {
-                            lowDist--;
-                        }
+                        lowDist--;
                     }
                     bool same = (lowDist + 1 == distances[changedP]);
                     if (!same || pref != preferred[changedP])
@@ -472,7 +460,7 @@ namespace NetChange
                     {
                         nbPorts.Add(portnr + 55500);
                     }
-                    nrOfNodes++;
+
                     threads[portnr] = new Thread(communicationHandler);
                     threads[portnr].Start(portnr);
 
@@ -541,7 +529,7 @@ namespace NetChange
                         streamsOut[portnr] = streamOut;
                         streamsIn[portnr] = streamIn;
                         distances[portnr] = 1;
-                        
+
                         preferred[portnr] = portnr + 55500;
                         lock (ndisLock)
                         {
@@ -553,7 +541,7 @@ namespace NetChange
                         {
                             nbPorts.Add(portnr + 55500);
                         }
-                        nrOfNodes++;
+
                         threads[portnr] = new Thread(communicationHandler);
                         threads[portnr].Start(portnr);
 
