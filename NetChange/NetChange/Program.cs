@@ -27,7 +27,7 @@ namespace NetChange
 
         static int nrOfNodes;
 
-        private static object ndisLock = new Object(), distLock = new Object(), prefLock = new Object(), listlock = new Object(), calcLock = new Object();
+        private static object ndisLock = new Object(), distLock = new Object(), prefLock = new Object(), listlock = new Object(), calcLock = new Object(), nodesCount = new Object();
 
         //Async server
         public static ManualResetEvent allDone = new ManualResetEvent(false),
@@ -293,7 +293,10 @@ namespace NetChange
                 if (lowDist >= max)
                 {
                     Console.WriteLine("Onbereikbaar: " + parts[1]);
-                    nrOfNodes--;
+                    lock (nodesCount)
+                    {
+                        nrOfNodes--;
+                    }
                     lock (ndisLock)
                     {
                         for (int n = 0; n < max; n++)
@@ -301,9 +304,12 @@ namespace NetChange
                             ndis[changedP, n] = max + 1;
                         }
                     }
-                    if (lowDist <= nrOfNodes && distances[changedP] < nrOfNodes)
+                    lock (nodesCount)
                     {
-                        sendMyDist(changedP + 55500, nrOfNodes+1);
+                        if (lowDist <= nrOfNodes && distances[changedP] < nrOfNodes)
+                        {
+                            sendMyDist(changedP + 55500, nrOfNodes + 1);
+                        }
                     }
                     lock (distLock)
                     {
@@ -329,9 +335,12 @@ namespace NetChange
 
                 else
                 {
-                    if (lowDist == max)
+                    lock (nodesCount)
                     {
-                        lowDist--;
+                        if (lowDist == nrOfNodes)
+                        {
+                            lowDist--;
+                        }
                     }
                     bool same = (lowDist + 1 == distances[changedP]);
                     if (!same || pref != preferred[changedP])
