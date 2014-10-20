@@ -1,4 +1,14 @@
-﻿using System;
+﻿/* Written by:
+ * Kylian Kuijer, 4055195
+ * Colin Smits,   4075390
+ * Concurrency Pract 2
+ * 
+ * 
+ * Notes: - 4 reports are sent along, to show the repetitive correctness of the program 
+ *          (except for the variable limit) *  
+ */ 
+
+using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
