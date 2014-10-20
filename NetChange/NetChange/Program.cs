@@ -11,13 +11,11 @@ namespace NetChange
 {
     class Program
     {
-        static TcpClient[] client;
         static TcpListener server;
         static StreamWriter[] streamsOut;
         static StreamReader[] streamsIn;
         static string ownPort;
         static int ownPortInt;
-        static int nrOfNbs;
         static Thread[] threads;
         static List<int> nbPorts;
         static int[,] ndis;
@@ -25,6 +23,7 @@ namespace NetChange
         static int[] preferred;
         static int max;
 
+        //locks used for the different lists/arrays to ensure specific locking
         private static object ndisLock = new Object(), distLock = new Object(), prefLock = new Object(), listlock = new Object(), calcLock = new Object();
 
         //Async server
@@ -37,12 +36,12 @@ namespace NetChange
             //initializing arrays/lists
             streamsOut = new StreamWriter[19];
             streamsIn = new StreamReader[19];
-            client = new TcpClient[19];
             max = 20;
             nbPorts = new List<int>();
             distances = new int[20];
             preferred = new int[20];
             ndis = new int[20, 20];
+            threads = new Thread[22];
 
             //assigning own port number
             ownPort = args[0];
@@ -50,8 +49,6 @@ namespace NetChange
             Console.Title = "NetChange " + ownPort;
 
 
-            nrOfNbs = args.Length - 2;
-            threads = new Thread[22];
             //starting threads for console handling and new connections
             threads[20] = new Thread(consoleHandler);
             threads[20].Start();
@@ -74,6 +71,7 @@ namespace NetChange
             ndis[ownPortInt - 55500, ownPortInt - 55500] = -1;
             distances[ownPortInt - 55500] = 0;
             preferred[ownPortInt - 55500] = ownPortInt;
+
             //Looping through neighbours and assigning either as a client to the neighbour, or accepting the neighbour as a client
             for (int i = 1; i < args.Length; i++)
             {
@@ -104,7 +102,7 @@ namespace NetChange
                 {
                     showRoutingTable();
                 }
-
+                //sending messages
                 else if (prog == "B")
                 {
                     int poortnr = int.Parse(words[1]);
@@ -120,7 +118,7 @@ namespace NetChange
                 }
 
 
-
+                //handling new connection
                 else if (prog == "C")
                 {
                     int poortnr = int.Parse(words[1]);
@@ -135,7 +133,7 @@ namespace NetChange
                         threads[poortnr - 55500].Start(poortnr);
                     }
                 }
-
+                //handling disconnect
                 else if (prog == "D")
                 {
                     int poortnr = int.Parse(words[1]);
@@ -151,6 +149,7 @@ namespace NetChange
 
                     else
                     {
+                        //send msg disconnect so that other port closes connection as well
                         sendMsg(poortnr, "Disconnect: " + ownPort);
 
                         disCon(poortnr);
@@ -167,21 +166,24 @@ namespace NetChange
         {
             Console.WriteLine("Verbroken: " + poortnr);
             int recalcport = poortnr - 55500;
+            //remove port from nb's 
             lock (listlock)
             {
                 nbPorts.Remove(poortnr);
             }
+            //set all ndis from the disconnected port to max + 1 (unreachable)
             for (int x = 0; x < max; x++)
             {
                 ndis[recalcport, x] = max + 1;
             }
+            //set own dis to unreachable and recalculate
             ndis[ownPortInt - 55500, recalcport] = max + 1;
             string[] s = new string[4];
             s[1] = poortnr + "";
             s[2] = max + "";
             s[3] = ownPortInt + "";
             calcDist(s);
-
+            //check if disconnected port was preferred for another. If so: recalculate this port.
             for (int y = 0; y < max; y++)
             {
                 if (preferred[y] == poortnr)
@@ -206,6 +208,7 @@ namespace NetChange
             }
         }
 
+        // show routing table while locking the distances 
         private static void showRoutingTable()
         {
             for (int x = 0; x < 20; x++)
@@ -224,7 +227,7 @@ namespace NetChange
 
 
         }
-
+        //method for the communication between threads (therefore while (true))
         private static void communicationHandler(object obj)
         {
             int portnr = (int)obj;
@@ -235,6 +238,7 @@ namespace NetChange
                 string[] parts = msg.Split(' ');
                 if (parts[0] == "MYDIST:")
                 {
+                    //my dist so recalc. Lock used to ensure FIFO
                     lock (calcLock)
                     {
                         calcDist(parts);
@@ -244,10 +248,12 @@ namespace NetChange
                 {
                     if (parts[1] == ownPort)
                     {
+                        //show message on screen
                         Console.WriteLine(parts[2]);
                     }
                     else
                     {
+                        //forward message
                         int toPort = int.Parse(parts[1]);
                         sendMsg(toPort, msg);
                         Console.WriteLine("Bericht voor " + toPort + " doorgestuurd naar " + preferred[toPort - 55500]);
@@ -255,12 +261,13 @@ namespace NetChange
                 }
                 else if (parts[0] == "Disconnect:")
                 {
+                    //handling disconnect send from other port (which received D portnr)
                     int port = int.Parse(parts[1]);
                     disCon(port);
                 }
             }
         }
-        //problem going on with ndis and distances (fix: update ndis no matter what)
+    
         private static void calcDist(string[] parts)
         {
             int changedP = int.Parse(parts[1]) - 55500;
@@ -268,6 +275,7 @@ namespace NetChange
             int newPort = int.Parse(parts[3]) - 55500;
             if (newPort != changedP)
             {
+                //only if not your own port, set the ndis
                 lock (ndisLock)
                 {
                     ndis[newPort, changedP] = newDis;
@@ -280,6 +288,7 @@ namespace NetChange
                 int pref = 0;
                 for (int x = 0; x < max; x++)
                 {
+                    //check for lowest distance and corresponding portnr
                     if (ndis[x, changedP] < lowDist)
                     {
                         lowDist = ndis[x, changedP];
@@ -289,10 +298,12 @@ namespace NetChange
 
                 if (lowDist >= max)
                 {
+                    //distance is >20, so unreachable
                     Console.WriteLine("Onbereikbaar: " + parts[1]);
 
                     lock (ndisLock)
                     {
+                        //unreachable, so all ndis are set to max
                         for (int n = 0; n < max; n++)
                         {
                             ndis[changedP, n] = max + 1;
@@ -302,6 +313,7 @@ namespace NetChange
                     {
                         sendMyDist(changedP + 55500, 20);
                     }
+                    //setting new distance and preferred using locks
                     lock (distLock)
                     {
                         distances[changedP] = max;
@@ -311,6 +323,7 @@ namespace NetChange
                         preferred[changedP] = 0;
                     }
 
+                    //check again if the unreachable port was a preferred port for another port
                     for (int y = 0; y < max; y++)
                     {
                         if (preferred[y] == changedP + 55500)
@@ -331,6 +344,7 @@ namespace NetChange
                         lowDist--;
                     }
                     bool same = (lowDist + 1 == distances[changedP]);
+                    //if distance or preferred has changed: set new distance and preferred using locks and send MyDist 
                     if (!same || pref != preferred[changedP])
                     {
                         lock (distLock)
@@ -358,8 +372,7 @@ namespace NetChange
         }
 
 
-
-
+        //send mydist to all neighbourports
         private static void sendMyDist(int poortnr, int newdistance)
         {
             lock (listlock)
@@ -372,6 +385,7 @@ namespace NetChange
 
         }
 
+        //at start connection: send all your current known distances to known ports to the new connected port
         private static void sendAllDist(int poortnr)
         {
             lock (distLock)
@@ -387,7 +401,7 @@ namespace NetChange
         }
 
         #region Socket Operations
-
+        //socket listener during whole execution
         private static void connectionHandler()
         {
             while (true)
@@ -406,6 +420,7 @@ namespace NetChange
             }
         }
 
+        
         private static void asyncAccept()
         {
             try
@@ -420,13 +435,14 @@ namespace NetChange
             }
         }
 
+        //Callback method for accepting
         private static void asyncAcceptCB(IAsyncResult ar)
         {
             allDone.Set();
             TcpListener listener = (TcpListener)ar.AsyncState;
             TcpClient accClient = listener.EndAcceptTcpClient(ar);
 
-
+            
             StreamReader streamIn = new StreamReader(accClient.GetStream());
             StreamWriter streamOut = new StreamWriter(accClient.GetStream());
 
@@ -442,13 +458,16 @@ namespace NetChange
                 {
                     int portnr = int.Parse(parts[1]) - 55500;
                     Console.WriteLine("Verbonden: " + parts[1]);
+                    //write streams to array for use in sending msg
                     streamsOut[portnr] = streamOut;
                     streamsIn[portnr] = streamIn;
 
-
+                    //set all distances, ndis and preferred (neighb, so dist 1)
                     distances[portnr] = 1;
 
                     preferred[portnr] = portnr + 55500;
+
+                    //locks are used here to guarantee that the new values are used
                     lock (ndisLock)
                     {
                         ndis[ownPortInt - 55500, portnr] = 1;
@@ -468,14 +487,13 @@ namespace NetChange
                     obtained = true;
                     sendAllDist(portnr + 55500);
                 }
-
+                //Only happens when first connection was from low to high (switch server and client)
                 if (parts[0] == "//PleasePortnr:")
                 {
                     int portnr = int.Parse(parts[1]) - 55500;
                     threads[portnr] = new Thread(asyncCreate);
                     threads[portnr].Start(portnr + 55500);
                     streamOut.WriteLine("//Close");
-                    // accClient.Close();
                     obtained = true;
                 }
             }
@@ -502,7 +520,7 @@ namespace NetChange
 
 
         }
-
+        //Create callback
         private static void asyncCreateCB(IAsyncResult ar)
         {
             try
@@ -526,11 +544,16 @@ namespace NetChange
                     if (parts[0] == "//Portnr:")
                     {
                         int portnr = int.Parse(parts[1]) - 55500;
+                        //write streams to array for use in sending msg
                         streamsOut[portnr] = streamOut;
                         streamsIn[portnr] = streamIn;
+
+                        //set all distances, ndis and preferred (neighb, so dist 1)
                         distances[portnr] = 1;
 
                         preferred[portnr] = portnr + 55500;
+
+                        //locks are used here to guarantee that the new values are used
                         lock (ndisLock)
                         {
                             ndis[ownPortInt - 55500, portnr] = 1;
@@ -559,13 +582,14 @@ namespace NetChange
             }
         }
 
+        //Method for a connection offer from a lower port to a higher (have to be switched)
         private static void asyncGetConn(object obj)
         {
             int portnr = (int)obj;
 
             try
             {
-                //create client on the server identified by portnr
+                
 
                 TcpClient client = new TcpClient();
 
@@ -578,6 +602,7 @@ namespace NetChange
 
         }
 
+        //Ask other port to connect to server on this port
         private static void asyncGetConnCB(IAsyncResult ar)
         {
             try
@@ -600,7 +625,6 @@ namespace NetChange
                     string[] parts = line.Split(' ');
                     if (parts[0] == "//Close")
                     {
-                        //         client.Close();
                         verified = true;
                     }
 
